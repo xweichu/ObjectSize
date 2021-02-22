@@ -1,0 +1,52 @@
+#!/usr/bin/stap
+
+# This script tries to identify contended mutex locks.
+
+global thread_blocktime     # time of latest lock call by thread
+global lock_waits # long-lived stats on (pid,lock) blockage elapsed time
+global process_names      # long-lived pid-to-execname mapping
+
+global mutex_locks[100000];     # number of locks in progress
+global mutex_stack;     # flag if we already printed a stack
+
+probe process("/lib/x86_64-linux-gnu/libpthread.so.0").function("pthread_mutex_lock") {
+
+  process_names[pid()] = execname();
+  printf("\nlock_acquire, %s, %d\n", process_names[pid()], tid())
+
+  if(mutex_locks[$mutex]++ > 0){    # Contended
+    printf("lock_contended, %s, %d", process_names[pid()], tid())
+    //process_names[pid()] = execname();
+    thread_blocktime[tid()] = gettimeofday_us();
+    if (!mutex_stack[pid(), $mutex]) {
+      mutex_stack[pid(), $mutex] = 1;
+      printf("\nContended, %s, %d, mutex %p stack trace:\n", process_names[pid()], pid(), $mutex)
+        print_ubacktrace();
+    }
+  }
+}
+
+probe process("/lib/x86_64-linux-gnu/libpthread.so.0").function("pthread_mutex_lock").return {
+  --mutex_locks[@entry($mutex)];
+
+  printf("\nlock_acquired, %s, %d\n", execname(), tid())
+  t = tid();
+  ts = thread_blocktime[t];
+  if (ts) {
+    elapsed = gettimeofday_us() - ts;
+    lock_waits[pid(), @entry($mutex)] <<< elapsed;
+    delete thread_blocktime[tid()]
+  }
+}
+
+probe end {
+  // TODO: sort output by sum of wait times, rather than count.
+  foreach ([pid, m] in lock_waits-) {
+    printf ("%s[%d] mutex %p contended %d times, %dus total, %dus avg\n",
+        process_names[pid], pid, m,
+        @count(lock_waits[pid,m]),
+        @sum(lock_waits[pid,m]),
+        @avg(lock_waits[pid,m]));
+  }
+}
+

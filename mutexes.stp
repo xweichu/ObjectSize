@@ -1,0 +1,60 @@
+#!/usr/bin/stap
+
+# This script tries to identify contended mutex locks.
+
+global thread_blocktime         # time of latest lock call by thread
+global lock_waits               # long-lived stats on (pid,lock) blockage elapsed time
+global process_names            # long-lived pid-to-execname mapping
+
+global mutex_locks[100000];     # number of locks in progress
+global mutex_stack;             # flag if we already printed a stack
+
+probe process("/lib/x86_64-linux-gnu/libpthread.so.0").function("pthread_mutex_lock") {
+
+  printf("\nlock_acquire, %s, %d, %p\n", execname(), tid(), $mutex)
+  
+  if(mutex_locks[$mutex]++ > 0){    # Contended
+  
+    process_names[tid()] = execname();
+    printf("\nlock_contended, %s, %d, %p\n", execname(), tid(), $mutex)
+
+    thread_blocktime[tid()] = gettimeofday_us();
+    if (!mutex_stack[tid(), $mutex]) {
+      mutex_stack[tid(), $mutex] = 1;
+      printf("\nContended, %s, %d, mutex %p stack trace:\n", process_names[tid()], tid(), $mutex)
+        print_ubacktrace();
+    }
+  }
+}
+
+probe process("/lib/x86_64-linux-gnu/libpthread.so.0").function("pthread_mutex_lock").return {
+
+  printf("\nlock_acquired, %s, %d, %p \n", execname(), tid(),  @entry($mutex))
+  t = tid();
+  ts = thread_blocktime[t];
+  if (ts) {
+    elapsed = gettimeofday_us() - ts;
+    lock_waits[tid(), @entry($mutex)] <<< elapsed;
+    delete thread_blocktime[tid()]
+  }
+}
+
+
+probe process("/lib/x86_64-linux-gnu/libpthread.so.0").function("pthread_mutex_unlock") {
+    printf("\nlock_release, %s, %d, %p\n", execname(), tid(), $mutex)
+    if (--mutex_locks[$mutex] <= 0)
+      delete mutex_locks[$mutex];
+}
+
+
+probe end {
+  // TODO: sort output by sum of wait times, rather than count.
+  printf("Thread Name[tid], Mutex Address, Contended Times, Total Wait Time(us), Avg Wait Time(us)\n")
+  foreach ([tid, m] in lock_waits-) {
+    printf ("%s[%d],%p,%d,%d,%d\n",
+        process_names[tid], tid, m,
+        @count(lock_waits[tid,m]),
+        @sum(lock_waits[tid,m]),
+        @avg(lock_waits[tid,m]));
+  }
+}
