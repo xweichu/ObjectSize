@@ -29,7 +29,7 @@ probe process("/lib/x86_64-linux-gnu/libpthread.so.0").function("pthread_mutex_l
 
 probe process("/lib/x86_64-linux-gnu/libpthread.so.0").function("pthread_mutex_lock").return {
 
-  printf("\nlock_acquired, %s, %d, %p \n", execname(), tid(),  @entry($mutex))
+  printf("\nlock_acquired, %s, %d, %p\n", execname(), tid(),  @entry($mutex))
   t = tid();
   ts = thread_blocktime[t];
   if (ts) {
