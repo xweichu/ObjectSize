@@ -29,10 +29,10 @@ for line in lines:
     if len(parts) != 4:
         continue
     parts = parts[3]
-    if parts[1:-1] in pg_locks and 'lock_acquire' in line and 'finisher' in line:
+    if parts[1:-1] in pg_locks and 'lock_acquired' in line and 'finisher' in line:
         overall_total_acquires_finisher += 1
         continue
-    if parts[1:-1] in pg_locks and 'lock_acquire' in line and 'tp_osd_tp' in line:
+    if parts[1:-1] in pg_locks and 'lock_acquired' in line and 'tp_osd_tp' in line:
         overall_total_acquires_osd += 1
         continue
     if parts[1:-1] in pg_locks and 'lock_contended' in line and 'finisher' in line:
