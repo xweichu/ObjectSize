@@ -11,38 +11,46 @@ global mutex_stack[300000];             # flag if we already printed a stack
 
 probe process("/lib/x86_64-linux-gnu/libpthread.so.0").function("pthread_mutex_lock") {
 
-  printf("\nlock_acquire, %s, %d, %p\n", execname(), tid(), $mutex)
+  if(execname() == "finisher" || execname() == "tp_osd_tp"){
 
-  if (!mutex_stack[tid(), $mutex]) {
-      process_names[tid()] = execname();
-      mutex_stack[tid(), $mutex] = 1;
-      printf("\nCallstack, %s, %d, mutex %p stack trace:\n", execname(), tid(), $mutex)
-        print_ubacktrace();
+    printf("\nlock_acquire, %s, %d, %p\n", execname(), tid(), $mutex)
+
+    if (!mutex_stack[tid(), $mutex]) {
+        process_names[tid()] = execname();
+        mutex_stack[tid(), $mutex] = 1;
+        printf("\nCallstack, %s, %d, mutex %p stack trace:\n", execname(), tid(), $mutex)
+          print_ubacktrace();
+      }
+    
+    if(mutex_locks[$mutex]++ > 0){    # Contended
+      printf("\nlock_contended, %s, %d, %p\n", execname(), tid(), $mutex)
+      thread_blocktime[tid()] = gettimeofday_us();
     }
-  
-  if(mutex_locks[$mutex]++ > 0){    # Contended
-    printf("\nlock_contended, %s, %d, %p\n", execname(), tid(), $mutex)
-    thread_blocktime[tid()] = gettimeofday_us();
+
   }
 }
 
 probe process("/lib/x86_64-linux-gnu/libpthread.so.0").function("pthread_mutex_lock").return {
 
-  printf("\nlock_acquired, %s, %d, %p\n", execname(), tid(),  @entry($mutex))
-  t = tid();
-  ts = thread_blocktime[t];
-  if (ts) {
-    elapsed = gettimeofday_us() - ts;
-    lock_waits[tid(), @entry($mutex)] <<< elapsed;
-    delete thread_blocktime[tid()]
+  if(execname() == "finisher" || execname() == "tp_osd_tp"){
+    printf("\nlock_acquired, %s, %d, %p\n", execname(), tid(),  @entry($mutex))
+    t = tid();
+    ts = thread_blocktime[t];
+    if (ts) {
+      elapsed = gettimeofday_us() - ts;
+      lock_waits[tid(), @entry($mutex)] <<< elapsed;
+      delete thread_blocktime[tid()]
+    }
   }
 }
 
 
 probe process("/lib/x86_64-linux-gnu/libpthread.so.0").function("pthread_mutex_unlock") {
-    printf("\nlock_release, %s, %d, %p\n", execname(), tid(), $mutex)
-    if (--mutex_locks[$mutex] <= 0)
-      delete mutex_locks[$mutex];
+  if(execname() == "finisher" || execname() == "tp_osd_tp"){
+      printf("\nlock_release, %s, %d, %p\n", execname(), tid(), $mutex)
+      if (--mutex_locks[$mutex] <= 0)
+        delete mutex_locks[$mutex];
+  }
 }
 
 
