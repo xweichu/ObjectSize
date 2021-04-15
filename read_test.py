@@ -1,5 +1,6 @@
 import time
 import rados
+import random
 from multiprocessing import Process, Value, Pool
 import os
 import sys
@@ -7,6 +8,7 @@ import sys
 # agrs populate object size, append data size, thread number, time ) 
 def populate_objects_t(prefix, bts, tm):
     cluster = rados.Rados(conffile='/etc/ceph/ceph.conf')
+
     cluster.connect()
     ioctx = cluster.open_ioctx('scbench')
     i = 0 
@@ -42,40 +44,48 @@ def populate_objects(obj_size, thread_num, tm):
         p.join()
 
 
-def append_data_to_objects_t(prefix, bts, tm):
+def read_data_to_objects_t(prefix, length, obj_size, tm):
 
     cluster = rados.Rados(conffile='/etc/ceph/ceph.conf')
     cluster.connect()
     ioctx = cluster.open_ioctx('scbench')
+
     i = 0 
+    total_bytes = 0 
+
     start_time = time.time()
     while True:
         try:
             ioctx.stat(prefix + str(i))
-            ioctx.append(prefix + str(i), bts)
-            i = i + 1
+            offset = random.randint(0,int(obj_size/length)) * length
+            bts = ioctx.read(prefix + str(i), length, offset)
+            if len(bts) == length:
+                total_bytes = total_bytes + len(bts)
+            else:
+                ioctx.close()
+                cluster.shutdown()
+                break
+
             elapsed_time = time.time() - start_time
             if elapsed_time > tm:
                 ioctx.close()
                 cluster.shutdown()
                 break
+            i = i + 1
         except Exception as e:
-            return ((i)*len(bts))
+            return total_bytes
 
-    return ((i)*len(bts))
+    return total_bytes
 
 
-def append_data_to_objects(append_size, thread_num, tm):
-    f = open('./data', 'rb')
-    bts = f.read()
-    bts = bts[0:append_size]
+def read_data_to_objects(length, thread_num, obj_size, tm):
 
-    process_target = append_data_to_objects_t
+    process_target = read_data_to_objects_t
     pl = Pool(thread_num)
     arguments = []
 
     for i in range(thread_num):
-        arguments.append(('Thread_' + str(i), bts, tm))
+        arguments.append(('Thread_' + str(i), length, obj_size, tm))
     
     start = time.time()
     results = pl.starmap(process_target,arguments)
@@ -87,6 +97,7 @@ def append_data_to_objects(append_size, thread_num, tm):
 os.system('ceph osd pool delete scbench scbench --yes-i-really-really-mean-it')
 os.system('ceph osd pool create scbench 128 128')
 time.sleep(10)
-populate_objects(int(sys.argv[1]), int(sys.argv[3]), 20)
+populate_objects(int(sys.argv[1]), int(sys.argv[3]), 30)
 time.sleep(3)
-append_data_to_objects(int(sys.argv[2]), int(sys.argv[3]), 20)
+read_data_to_objects(int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[1]), 30)
+time.sleep(3)

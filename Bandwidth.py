@@ -3,9 +3,9 @@ import sys
 import time
 
 run_time = 30
-PG_NUMs = [128]
+PG_NUMs = [256]
 Object_Sizes=['4K', '16K', '64K', '256K', '1M', '4M', '16M', '64M']
-Threads_NUMs= [4, 8, 16, 32 , 64 , 128 , 256, 384]
+Threads_NUMs= [4, 8, 16, 32 , 64]
 
 for PG_NUM in PG_NUMs:
     for Threads_NUM in Threads_NUMs:

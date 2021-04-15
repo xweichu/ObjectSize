@@ -3,6 +3,7 @@ import rados
 from multiprocessing import Process, Value, Pool
 import os
 import sys
+import random
 
 # agrs populate object size, append data size, thread number, time ) 
 def populate_objects_t(prefix, bts, tm):
@@ -42,17 +43,25 @@ def populate_objects(obj_size, thread_num, tm):
         p.join()
 
 
-def append_data_to_objects_t(prefix, bts, tm):
+def update_data_to_objects_t(prefix, bts, obj_size, tm):
 
     cluster = rados.Rados(conffile='/etc/ceph/ceph.conf')
     cluster.connect()
     ioctx = cluster.open_ioctx('scbench')
     i = 0 
     start_time = time.time()
+
+    total_bytes = 0 
+
     while True:
         try:
             ioctx.stat(prefix + str(i))
-            ioctx.append(prefix + str(i), bts)
+            length = len(bts)
+
+            offset = random.randint(0,int(obj_size/length)-1) * length
+            ioctx.write(prefix + str(i), bts, offset)
+            total_bytes = total_bytes + length 
+
             i = i + 1
             elapsed_time = time.time() - start_time
             if elapsed_time > tm:
@@ -60,22 +69,22 @@ def append_data_to_objects_t(prefix, bts, tm):
                 cluster.shutdown()
                 break
         except Exception as e:
-            return ((i)*len(bts))
+            return total_bytes
 
-    return ((i)*len(bts))
+    return total_bytes
 
 
-def append_data_to_objects(append_size, thread_num, tm):
+def update_data_to_objects(append_size, thread_num, obj_size, tm):
     f = open('./data', 'rb')
     bts = f.read()
     bts = bts[0:append_size]
 
-    process_target = append_data_to_objects_t
+    process_target = update_data_to_objects_t
     pl = Pool(thread_num)
     arguments = []
 
     for i in range(thread_num):
-        arguments.append(('Thread_' + str(i), bts, tm))
+        arguments.append(('Thread_' + str(i), bts, obj_size, tm))
     
     start = time.time()
     results = pl.starmap(process_target,arguments)
@@ -87,6 +96,7 @@ def append_data_to_objects(append_size, thread_num, tm):
 os.system('ceph osd pool delete scbench scbench --yes-i-really-really-mean-it')
 os.system('ceph osd pool create scbench 128 128')
 time.sleep(10)
-populate_objects(int(sys.argv[1]), int(sys.argv[3]), 20)
+populate_objects(int(sys.argv[1]), int(sys.argv[3]), 30)
 time.sleep(3)
-append_data_to_objects(int(sys.argv[2]), int(sys.argv[3]), 20)
+update_data_to_objects(int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[1]), 30)
+time.sleep(10)
