@@ -34,5 +34,9 @@ def populate_objects(obj_size, thread_num, object_num):
     for p in processes:
         p.join()
 
+os.system('ceph osd pool delete scbench scbench --yes-i-really-really-mean-it')
+os.system('ceph osd pool create scbench 128 128')
+time.sleep(10)
+
 # Object Size, Thread Num, Object Num
 populate_objects(int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]))
